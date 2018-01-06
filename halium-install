@@ -29,7 +29,7 @@ check_prereq()
 {
 	if [ ! $(which make_ext4fs) ] || [ ! -x $(which simg2img) ] || \
 		[ ! -x $(which adb) ]; then
-		echo "please install the android-tools-fsutils and android-tools-adb packages" && exit 1
+		echo "Please install the android-tools-fsutils and android-tools-adb packages" && exit 1
 	fi
 }
 
@@ -41,12 +41,14 @@ do_shell()
 convert_android_img()
 {
 	if file $SYSIMG | grep -v ": Linux rev 1.0 ext4" >/dev/null; then
+		echo "convert: $SYSIMG"
 		simg2img $SYSIMG $WORKDIR/system.img.raw
 		mkdir $TMPMOUNT
 		mount -t ext4 -o loop $WORKDIR/system.img.raw $TMPMOUNT
 		make_ext4fs -l 160M $WORKDIR/system.img $TMPMOUNT
 		SYSIMAGE=$WORKDIR/system.img
 	else
+		echo "keep as is: $SYSIMG"
 		SYSIMAGE=$SYSIMG
 	fi
 }
@@ -123,30 +125,41 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$TARPATH" ]; then
-    echo "need valid rootfs tarball path"
-    usage
+	echo "Need valid rootfs tarball path"
+	usage
 fi
 
 TARBALL=$(basename $TARPATH)
 
 if [ -z "$TARBALL" ]; then
-    echo "need valid rootfs tarball path"
-    usage
+	echo "Need valid rootfs tarball path"
+	usage
 fi
 
-TARTYPE=$(file --mime-type $TARPATH|sed 's/^.* //')
+TARTYPE=$(file --mime-type $TARPATH | sed 's/^.* //')
+if [ "${TARTYPE}" = "inode/symlink" ] ; then
+	TARTYPE=$(file --mime-type $(readlink $TARPATH) | sed 's/^.* //' )
+fi
 case ${TARTYPE#application\/} in
-    gzip|x-gzip)
-	;;
-    *)
-	echo "Need valid rootfs tarball gzip type"
-	usage
-	;;
+	gzip|x-gzip)
+		;;
+	*)
+		echo "Need valid rootfs tarball gzip type. Found \"$TARTYPE\""
+		usage
+		;;
 esac
 
-if [ -z "$SYSIMG" ] || \
-	[ "$(file --mime-type $SYSIMG|sed 's/^.* //')" != "application/octet-stream" ]; then
-	echo "need valid system.img path and type application/octet-stream"
+if [ -z "$SYSIMG" ] ; then 
+	echo "Need valid system image path"
+	usage
+fi
+
+SYSIMGTYPE=$(file --mime-type $SYSIMG | sed 's/^.* //')
+if [ "${SYSIMGTYPE}" = "inode/symlink" ] ; then
+	SYSIMGTYPE=$(file --mime-type $(readlink $SYSIMG) | sed 's/^.* //' )
+fi
+if [ "$SYSIMGTYPE" != "application/octet-stream" ]; then
+	echo "Need valid system.img path and type application/octet-stream. Found \"$SYSIMGTYPE\""
 	usage
 fi
 
@@ -161,7 +174,7 @@ fi
 check_prereq
 
 if ! adb devices | grep -q recovery; then
-	echo "please make sure the device is attched via USB in recovery mode"
+	echo "Please make sure the device is attched via USB in recovery mode"
 	exit 1
 fi
 
@@ -170,35 +183,36 @@ check_mounts
 WORKDIR=$(mktemp -d /tmp/halium-install.XXXXX)
 TMPMOUNT="$WORKDIR/tmpmount"
 
-echo "transfering rootfs tarball ... "
+echo "Transfering rootfs tarball ... "
 adb push $TARPATH /recovery/
 echo "[done]"
 
 if [ ! -z "$CUST_TARPATH" ]; then
 	CUST_TARBALL=$(basename $CUST_TARPATH)
-	echo  -n "transferring custom tarball"
+	echo  -n "Transferring custom tarball"
 	adb push $CUST_TARPATH /recovery/
 	echo "[done]"
 fi
 
-echo -n "preparing system-image on device ... "
+echo -n "Preparing system-image on device ... "
 prepare_halium_system
 echo "[done]"
 
-echo -n "unpacking rootfs tarball to system-image ... "
+echo -n "Unpacking rootfs tarball to system-image ... "
 do_shell "cd /cache/system && zcat /recovery/$TARBALL | tar xf -"
 do_shell "[ -e /cache/system/SWAP.swap ] && mv /cache/system/SWAP.swap /data/SWAP.img"
 echo "[done]"
 
-echo -n "adding android system image to installation ... "
+echo -n "Adding android system image to installation ... "
 convert_android_img
 ANDROID_DIR="/data"
 adb push $SYSIMAGE $ANDROID_DIR/system.img
 echo "[done]"
 
-echo -n "cleaning up on device ... "
+echo -n "Cleaning up on device ... "
 cleanup_device
 echo "[done]"
 
 echo "All done! Now you can use 'adb shell' to get a shell to the recovery, or"
 echo "simply reboot your device to start Halium."
+
